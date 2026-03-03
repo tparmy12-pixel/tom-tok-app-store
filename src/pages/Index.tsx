@@ -4,6 +4,7 @@ import { supabase } from "@/integrations/supabase/client";
 import Layout from "@/components/Layout";
 import AppCard from "@/components/AppCard";
 import { motion } from "framer-motion";
+import logo from "@/assets/logo.png";
 
 const CATEGORIES = ["All", "Social", "Games", "Tools", "Entertainment", "Education", "Other"];
 
@@ -40,9 +41,7 @@ const Index: React.FC = () => {
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.6 }}
           >
-            <div className="w-24 h-24 rounded-full gradient-neon mx-auto mb-6 flex items-center justify-center neon-glow">
-              <span className="font-display text-3xl font-black text-primary-foreground">TT</span>
-            </div>
+            <img src={logo} alt="Tom Tok Store" className="w-24 h-24 rounded-2xl mx-auto mb-6 neon-glow object-cover" />
             <h1 className="font-display text-4xl md:text-5xl font-black gradient-neon-text mb-4">
               Tom Tok Store
             </h1>
