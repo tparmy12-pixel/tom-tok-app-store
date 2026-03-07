@@ -81,11 +81,17 @@ const Layout: React.FC<LayoutProps> = ({ children, onSearch, showSearch = false 
 
       {/* Footer */}
       <footer className="border-t border-border/50 py-8">
-        <div className="container mx-auto px-4 text-center">
+        <div className="container mx-auto px-4 text-center space-y-4">
           <p className="font-display text-sm gradient-neon-text font-bold tracking-wider">
             1 Billion+ Downloads
           </p>
-          <p className="text-muted-foreground text-xs mt-2">
+          <div className="flex flex-wrap justify-center gap-4 text-sm">
+            <Link to="/contact" className="text-muted-foreground hover:text-primary transition-colors">Contact Us</Link>
+            <Link to="/privacy-policy" className="text-muted-foreground hover:text-primary transition-colors">Privacy Policy</Link>
+            <Link to="/terms" className="text-muted-foreground hover:text-primary transition-colors">Terms & Conditions</Link>
+            <Link to="/feedback" className="text-muted-foreground hover:text-primary transition-colors">Feedback</Link>
+          </div>
+          <p className="text-muted-foreground text-xs">
             © 2026 Tom Tok Store. All rights reserved.
           </p>
         </div>
