@@ -150,6 +150,7 @@ export type Database = {
           status: string
           transaction_id: string
           user_id: string
+          video_url: string | null
         }
         Insert: {
           amount?: number
@@ -164,6 +165,7 @@ export type Database = {
           status?: string
           transaction_id: string
           user_id: string
+          video_url?: string | null
         }
         Update: {
           amount?: number
@@ -178,6 +180,7 @@ export type Database = {
           status?: string
           transaction_id?: string
           user_id?: string
+          video_url?: string | null
         }
         Relationships: []
       }
