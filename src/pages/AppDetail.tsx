@@ -49,13 +49,19 @@ const AppDetail: React.FC = () => {
     await supabase.rpc("increment_download_count", { _app_id: app.id });
     
     if (!app.apk_url) {
-      toast.error("APK not available yet");
+      toast.error("APK abhi available nahi hai. Admin se upload hone ka wait karein.");
       return;
     }
 
-    // Open the official website to download APK
-    window.open(app.apk_url, "_blank");
-    toast.success(`Redirecting to ${app.name} official download page!`);
+    // Direct file download from our store
+    toast.success(`${app.name} download ho raha hai...`);
+    const link = document.createElement("a");
+    link.href = app.apk_url;
+    link.download = `${app.name.replace(/\s+/g, '-')}.apk`;
+    link.target = "_blank";
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
   };
 
   const handleDownload = async () => {
