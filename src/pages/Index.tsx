@@ -38,10 +38,10 @@ const Index: React.FC = () => {
       {/* Floating Promote Button */}
       <button
         onClick={() => navigate("/promote")}
-        className="fixed top-20 right-4 z-50 flex items-center gap-1.5 px-4 py-2 rounded-full gradient-neon text-primary-foreground text-sm font-bold neon-glow shadow-lg hover:scale-105 transition-transform"
+        className="fixed bottom-6 right-6 z-[60] flex items-center gap-2 px-5 py-3 rounded-full gradient-neon text-primary-foreground text-sm font-bold neon-glow shadow-2xl hover:scale-110 transition-transform animate-pulse"
       >
-        <Sparkles className="h-4 w-4" />
-        Promote
+        <Sparkles className="h-5 w-5" />
+        Promote App
       </button>
 
       {/* Hero Banner */}
