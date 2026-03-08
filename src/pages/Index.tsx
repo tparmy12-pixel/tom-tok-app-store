@@ -13,6 +13,7 @@ const CATEGORIES = ["All", "Social", "Games", "Tools", "Entertainment", "Educati
 const Index: React.FC = () => {
   const [search, setSearch] = useState("");
   const [category, setCategory] = useState("All");
+  const navigate = useNavigate();
 
   const { data: apps = [], isLoading } = useQuery({
     queryKey: ["apps"],
