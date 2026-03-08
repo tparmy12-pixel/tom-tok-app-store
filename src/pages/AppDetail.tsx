@@ -40,16 +40,46 @@ const AppDetail: React.FC = () => {
     },
   });
 
+  const [downloading, setDownloading] = useState(false);
+  const [downloadProgress, setDownloadProgress] = useState(0);
+
   const proceedDownload = async () => {
     if (!app || !user) return;
+    
+    // Track the download
     await supabase.from("downloads").insert({ app_id: app.id, user_id: user.id });
     await supabase.rpc("increment_download_count", { _app_id: app.id });
-    if (app.apk_url) {
-      window.open(app.apk_url, "_blank");
-      toast.success("Download started!");
-    } else {
+    
+    if (!app.apk_url) {
       toast.error("APK not available yet");
+      return;
     }
+
+    // Simulate in-app download with progress
+    setDownloading(true);
+    setDownloadProgress(0);
+    toast.info(`Downloading ${app.name}...`);
+
+    // Simulate download progress
+    const interval = setInterval(() => {
+      setDownloadProgress((prev) => {
+        if (prev >= 100) {
+          clearInterval(interval);
+          setDownloading(false);
+          toast.success(`${app.name} downloaded successfully! 🎉`, {
+            description: "APK saved to your device.",
+            duration: 5000,
+          });
+          // Actually trigger the file download/open link after progress completes
+          const link = document.createElement("a");
+          link.href = app.apk_url!;
+          link.download = `${app.name}.apk`;
+          link.click();
+          return 100;
+        }
+        return prev + Math.random() * 15 + 5;
+      });
+    }, 300);
   };
 
   const handleDownload = async () => {
