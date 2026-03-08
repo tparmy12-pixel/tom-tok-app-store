@@ -40,8 +40,6 @@ const AppDetail: React.FC = () => {
     },
   });
 
-  const [downloading, setDownloading] = useState(false);
-  const [downloadProgress, setDownloadProgress] = useState(0);
 
   const proceedDownload = async () => {
     if (!app || !user) return;
@@ -55,31 +53,9 @@ const AppDetail: React.FC = () => {
       return;
     }
 
-    // Simulate in-app download with progress
-    setDownloading(true);
-    setDownloadProgress(0);
-    toast.info(`Downloading ${app.name}...`);
-
-    // Simulate download progress
-    const interval = setInterval(() => {
-      setDownloadProgress((prev) => {
-        if (prev >= 100) {
-          clearInterval(interval);
-          setDownloading(false);
-          toast.success(`${app.name} downloaded successfully! 🎉`, {
-            description: "APK saved to your device.",
-            duration: 5000,
-          });
-          // Actually trigger the file download/open link after progress completes
-          const link = document.createElement("a");
-          link.href = app.apk_url!;
-          link.download = `${app.name}.apk`;
-          link.click();
-          return 100;
-        }
-        return prev + Math.random() * 15 + 5;
-      });
-    }, 300);
+    // Open the official website to download APK
+    window.open(app.apk_url, "_blank");
+    toast.success(`Redirecting to ${app.name} official download page!`);
   };
 
   const handleDownload = async () => {
@@ -181,27 +157,14 @@ const AppDetail: React.FC = () => {
                 {new Date(app.updated_at).toLocaleDateString()}
               </span>
             </div>
-            <div className="mt-6 space-y-2">
-              <Button
-                onClick={handleDownload}
-                className="gradient-neon text-primary-foreground neon-glow px-8"
-                size="lg"
-                disabled={downloading}
-              >
-                <Download className="h-5 w-5 mr-2" />
-                {downloading ? `Downloading... ${Math.min(Math.round(downloadProgress), 100)}%` : "Download APK"}
-              </Button>
-              {downloading && (
-                <div className="w-64 h-2 bg-muted rounded-full overflow-hidden">
-                  <motion.div
-                    className="h-full gradient-neon rounded-full"
-                    initial={{ width: 0 }}
-                    animate={{ width: `${Math.min(downloadProgress, 100)}%` }}
-                    transition={{ duration: 0.3 }}
-                  />
-                </div>
-              )}
-            </div>
+            <Button
+              onClick={handleDownload}
+              className="mt-6 gradient-neon text-primary-foreground neon-glow px-8"
+              size="lg"
+            >
+              <Download className="h-5 w-5 mr-2" />
+              Download APK
+            </Button>
           </div>
         </motion.div>
 
