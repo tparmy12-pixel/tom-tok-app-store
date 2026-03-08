@@ -55,31 +55,9 @@ const AppDetail: React.FC = () => {
       return;
     }
 
-    // Simulate in-app download with progress
-    setDownloading(true);
-    setDownloadProgress(0);
-    toast.info(`Downloading ${app.name}...`);
-
-    // Simulate download progress
-    const interval = setInterval(() => {
-      setDownloadProgress((prev) => {
-        if (prev >= 100) {
-          clearInterval(interval);
-          setDownloading(false);
-          toast.success(`${app.name} downloaded successfully! 🎉`, {
-            description: "APK saved to your device.",
-            duration: 5000,
-          });
-          // Actually trigger the file download/open link after progress completes
-          const link = document.createElement("a");
-          link.href = app.apk_url!;
-          link.download = `${app.name}.apk`;
-          link.click();
-          return 100;
-        }
-        return prev + Math.random() * 15 + 5;
-      });
-    }, 300);
+    // Open the official website to download APK
+    window.open(app.apk_url, "_blank");
+    toast.success(`Redirecting to ${app.name} official download page!`);
   };
 
   const handleDownload = async () => {
