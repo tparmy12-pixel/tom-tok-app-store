@@ -243,7 +243,7 @@ const PromoteApp: React.FC = () => {
                         const file = e.target.files?.[0];
                         if (file) {
                           if (file.size > MAX_VIDEO_SIZE) {
-                            toast({ title: "Error", description: "Video 50MB se chhota hona chahiye", variant: "destructive" });
+                            toast({ title: "Error", description: "Video 200MB se chhota hona chahiye", variant: "destructive" });
                             return;
                           }
                           setVideoFile(file);
