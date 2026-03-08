@@ -43,6 +43,8 @@ const PromoteApp: React.FC = () => {
   const [description, setDescription] = useState("");
   const [transactionId, setTransactionId] = useState("");
   const [submitting, setSubmitting] = useState(false);
+  const [videoFile, setVideoFile] = useState<File | null>(null);
+  const [videoUploading, setVideoUploading] = useState(false);
 
   const { data: price = "100" } = useQuery({
     queryKey: ["promotion-price"],
