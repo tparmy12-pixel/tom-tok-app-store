@@ -40,8 +40,6 @@ const AppDetail: React.FC = () => {
     },
   });
 
-  const [downloading, setDownloading] = useState(false);
-  const [downloadProgress, setDownloadProgress] = useState(0);
 
   const proceedDownload = async () => {
     if (!app || !user) return;
