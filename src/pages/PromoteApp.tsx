@@ -14,6 +14,7 @@ import { ExternalLink, CreditCard, CheckCircle2, Sparkles } from "lucide-react";
 import { motion } from "framer-motion";
 import { z } from "zod";
 import { Upload, Video } from "lucide-react";
+import AIAdGenerator from "@/components/AIAdGenerator";
 
 const MAX_VIDEO_SIZE = 200 * 1024 * 1024; // 200MB
 
