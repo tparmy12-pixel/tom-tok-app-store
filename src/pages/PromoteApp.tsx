@@ -228,7 +228,7 @@ const PromoteApp: React.FC = () => {
                     <Video className="h-4 w-4 text-neon-pink" /> Promotion Video (Optional)
                   </Label>
                   <p className="text-xs text-muted-foreground mb-2">
-                    Video ad upload karein — download ke waqt users ko dikhaya jayega (max 50MB)
+                    Video ad upload karein — download ke waqt users ko dikhaya jayega (max 200MB)
                   </p>
                   <label className="flex items-center justify-center gap-2 p-6 border-2 border-dashed border-border/50 rounded-xl cursor-pointer hover:border-neon-pink/50 transition-colors mt-1">
                     <Upload className="h-5 w-5 text-muted-foreground" />
