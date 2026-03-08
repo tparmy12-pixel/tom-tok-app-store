@@ -222,6 +222,43 @@ const PromoteApp: React.FC = () => {
                   />
                 </div>
 
+                {/* Video Upload */}
+                <div>
+                  <Label className="flex items-center gap-2">
+                    <Video className="h-4 w-4 text-neon-pink" /> Promotion Video (Optional)
+                  </Label>
+                  <p className="text-xs text-muted-foreground mb-2">
+                    Video ad upload karein — download ke waqt users ko dikhaya jayega (max 50MB)
+                  </p>
+                  <label className="flex items-center justify-center gap-2 p-6 border-2 border-dashed border-border/50 rounded-xl cursor-pointer hover:border-neon-pink/50 transition-colors mt-1">
+                    <Upload className="h-5 w-5 text-muted-foreground" />
+                    <span className="text-sm text-muted-foreground">
+                      {videoFile ? videoFile.name : "Click to upload video"}
+                    </span>
+                    <input
+                      type="file"
+                      accept="video/*"
+                      className="hidden"
+                      onChange={(e) => {
+                        const file = e.target.files?.[0];
+                        if (file) {
+                          if (file.size > MAX_VIDEO_SIZE) {
+                            toast({ title: "Error", description: "Video 50MB se chhota hona chahiye", variant: "destructive" });
+                            return;
+                          }
+                          setVideoFile(file);
+                        }
+                      }}
+                    />
+                  </label>
+                  {videoFile && (
+                    <div className="mt-2 flex items-center justify-between text-xs text-muted-foreground">
+                      <span>{(videoFile.size / (1024 * 1024)).toFixed(1)} MB</span>
+                      <button onClick={() => setVideoFile(null)} className="text-destructive hover:underline">Remove</button>
+                    </div>
+                  )}
+                </div>
+
                 <Button
                   onClick={() => {
                     if (!appLink) {
