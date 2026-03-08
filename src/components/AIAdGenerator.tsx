@@ -3,7 +3,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
 import { useToast } from "@/hooks/use-toast";
 import { supabase } from "@/integrations/supabase/client";
 import {
@@ -26,10 +26,11 @@ interface Avatar {
   label: string;
 }
 
-interface BrowserVoice {
+interface VoiceOption {
   name: string;
   lang: string;
   voice: SpeechSynthesisVoice;
+  quality: number; // higher = better
 }
 
 const BUTTON_STYLES = [
@@ -39,10 +40,20 @@ const BUTTON_STYLES = [
   { id: "solid-purple", label: "Solid Purple", className: "bg-purple-600 text-white" },
 ];
 
+// Prioritize high-quality voices
+const getVoiceQuality = (voice: SpeechSynthesisVoice): number => {
+  const name = voice.name.toLowerCase();
+  if (name.includes("google")) return 90;
+  if (name.includes("microsoft") && (name.includes("online") || name.includes("neural"))) return 85;
+  if (name.includes("microsoft")) return 70;
+  if (name.includes("samantha") || name.includes("daniel") || name.includes("karen")) return 75;
+  if (voice.localService === false) return 60; // cloud/network voices
+  return 40;
+};
+
 const AIAdGenerator: React.FC<{ onVideoGenerated: (file: File) => void }> = ({ onVideoGenerated }) => {
   const { toast } = useToast();
 
-  // Steps
   const [genStep, setGenStep] = useState(1);
 
   // Step 1: Avatar
@@ -59,7 +70,7 @@ const AIAdGenerator: React.FC<{ onVideoGenerated: (file: File) => void }> = ({ o
 
   // Step 3: Voiceover
   const [voiceScript, setVoiceScript] = useState("");
-  const [voices, setVoices] = useState<BrowserVoice[]>([]);
+  const [voices, setVoices] = useState<VoiceOption[]>([]);
   const [selectedVoiceIndex, setSelectedVoiceIndex] = useState(0);
   const [isPlaying, setIsPlaying] = useState(false);
 
@@ -68,15 +79,21 @@ const AIAdGenerator: React.FC<{ onVideoGenerated: (file: File) => void }> = ({ o
   const [generatedVideoUrl, setGeneratedVideoUrl] = useState<string | null>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
 
-  // Load voices
+  // Load and sort voices by quality
   useEffect(() => {
     const loadVoices = () => {
       const allVoices = speechSynthesis.getVoices();
-      const filtered = allVoices
+      const scored = allVoices
         .filter((v) => v.lang.startsWith("en") || v.lang.startsWith("hi"))
-        .slice(0, 12)
-        .map((v) => ({ name: v.name, lang: v.lang, voice: v }));
-      if (filtered.length > 0) setVoices(filtered);
+        .map((v) => ({
+          name: v.name,
+          lang: v.lang,
+          voice: v,
+          quality: getVoiceQuality(v),
+        }))
+        .sort((a, b) => b.quality - a.quality)
+        .slice(0, 15);
+      if (scored.length > 0) setVoices(scored);
     };
     loadVoices();
     speechSynthesis.onvoiceschanged = loadVoices;
@@ -109,7 +126,8 @@ const AIAdGenerator: React.FC<{ onVideoGenerated: (file: File) => void }> = ({ o
     speechSynthesis.cancel();
     const utterance = new SpeechSynthesisUtterance(voiceScript);
     utterance.voice = voices[selectedVoiceIndex].voice;
-    utterance.rate = 0.95;
+    utterance.rate = 0.92;
+    utterance.pitch = 1.0;
     utterance.onstart = () => setIsPlaying(true);
     utterance.onend = () => setIsPlaying(false);
     utterance.onerror = () => setIsPlaying(false);
@@ -123,6 +141,7 @@ const AIAdGenerator: React.FC<{ onVideoGenerated: (file: File) => void }> = ({ o
     }
 
     setGenerating(true);
+    setGeneratedVideoUrl(null);
 
     try {
       const canvas = canvasRef.current;
@@ -140,11 +159,26 @@ const AIAdGenerator: React.FC<{ onVideoGenerated: (file: File) => void }> = ({ o
         img.src = selectedAvatar.imageUrl;
       });
 
-      // Setup MediaRecorder
-      const stream = canvas.captureStream(30);
-      const mediaRecorder = new MediaRecorder(stream, {
-        mimeType: "video/webm;codecs=vp9",
-        videoBitsPerSecond: 2500000,
+      // Setup audio context for amplitude analysis
+      const audioCtx = new AudioContext();
+      const analyser = audioCtx.createAnalyser();
+      analyser.fftSize = 256;
+      const dataArray = new Uint8Array(analyser.frequencyBinCount);
+
+      // Create oscillator destination for capturing audio
+      const dest = audioCtx.createMediaStreamDestination();
+      analyser.connect(dest);
+
+      // Setup MediaRecorder with combined audio+video streams
+      const canvasStream = canvas.captureStream(30);
+      const combinedStream = new MediaStream([
+        ...canvasStream.getVideoTracks(),
+        ...dest.stream.getAudioTracks(),
+      ]);
+
+      const mediaRecorder = new MediaRecorder(combinedStream, {
+        mimeType: "video/webm;codecs=vp9,opus",
+        videoBitsPerSecond: 3000000,
       });
 
       const chunks: Blob[] = [];
@@ -160,151 +194,310 @@ const AIAdGenerator: React.FC<{ onVideoGenerated: (file: File) => void }> = ({ o
 
       mediaRecorder.start();
 
-      // Start TTS
+      // TTS with Web Audio routing for analysis
       const utterance = new SpeechSynthesisUtterance(voiceScript);
       utterance.voice = voices[selectedVoiceIndex].voice;
-      utterance.rate = 0.9;
+      utterance.rate = 0.92;
+      utterance.pitch = 1.0;
 
+      let speaking = false;
+      let speechEnded = false;
       const speechDone = new Promise<void>((resolve) => {
-        utterance.onend = () => resolve();
-        utterance.onerror = () => resolve();
+        utterance.onstart = () => { speaking = true; };
+        utterance.onend = () => { speaking = false; speechEnded = true; resolve(); };
+        utterance.onerror = () => { speaking = false; speechEnded = true; resolve(); };
       });
+
       speechSynthesis.speak(utterance);
 
-      // Animation frames
+      // Simulate audio amplitude for talking animation (since we can't route SpeechSynthesis to AnalyserNode)
+      let simulatedAmplitude = 0;
+      let mouthOpenness = 0;
+      const words = voiceScript.split(/\s+/);
+      const avgWordDuration = 350; // ms per word estimate
+      const totalSpeechDuration = words.length * avgWordDuration;
+
+      // Animation
       const buttonStyleObj = BUTTON_STYLES.find((s) => s.id === adButtonStyle);
       let frame = 0;
-      const totalDuration = Math.max(5000, voiceScript.length * 80);
+      const totalDuration = Math.max(6000, totalSpeechDuration + 2000);
       const startTime = Date.now();
+
+      // Pre-calculate word timings for mouth simulation
+      const wordTimings = words.map((w, i) => ({
+        word: w,
+        start: i * avgWordDuration,
+        end: i * avgWordDuration + avgWordDuration * 0.7,
+        syllables: Math.max(1, Math.ceil(w.length / 3)),
+      }));
 
       const drawFrame = () => {
         const elapsed = Date.now() - startTime;
         const progress = Math.min(elapsed / totalDuration, 1);
         frame++;
 
+        // Simulate mouth movement based on word timing
+        if (speaking) {
+          const speechElapsed = elapsed;
+          const currentWord = wordTimings.find(
+            (wt) => speechElapsed >= wt.start && speechElapsed <= wt.end
+          );
+          if (currentWord) {
+            // Simulate syllable-based mouth movement
+            const wordProgress = (speechElapsed - currentWord.start) / (currentWord.end - currentWord.start);
+            const syllablePhase = wordProgress * currentWord.syllables * Math.PI * 2;
+            simulatedAmplitude = Math.abs(Math.sin(syllablePhase)) * 0.8 + 0.2;
+          } else {
+            // Between words - mouth closing
+            simulatedAmplitude *= 0.7;
+          }
+        } else {
+          simulatedAmplitude *= 0.85;
+        }
+
+        // Smooth mouth openness
+        mouthOpenness += (simulatedAmplitude - mouthOpenness) * 0.3;
+
         // Background gradient
         const grad = ctx.createLinearGradient(0, 0, 0, canvas.height);
-        grad.addColorStop(0, "#0f0f23");
-        grad.addColorStop(0.5, "#1a1a3e");
-        grad.addColorStop(1, "#0f0f23");
+        grad.addColorStop(0, "#0a0a1a");
+        grad.addColorStop(0.3, "#121230");
+        grad.addColorStop(0.7, "#1a0a2e");
+        grad.addColorStop(1, "#0a0a1a");
         ctx.fillStyle = grad;
         ctx.fillRect(0, 0, canvas.width, canvas.height);
 
         // Animated particles
-        for (let i = 0; i < 20; i++) {
-          const x = ((i * 73 + frame * 0.5) % canvas.width);
-          const y = ((i * 97 + frame * 0.3) % canvas.height);
-          const alpha = 0.1 + Math.sin(frame * 0.02 + i) * 0.1;
-          ctx.fillStyle = `rgba(168, 85, 247, ${alpha})`;
+        for (let i = 0; i < 30; i++) {
+          const x = ((i * 73 + frame * 0.4) % canvas.width);
+          const y = ((i * 97 + frame * 0.2) % canvas.height);
+          const alpha = 0.05 + Math.sin(frame * 0.015 + i) * 0.05;
+          const hue = (frame * 0.3 + i * 20) % 360;
+          ctx.fillStyle = `hsla(${hue}, 70%, 60%, ${alpha})`;
           ctx.beginPath();
-          ctx.arc(x, y, 2 + Math.sin(frame * 0.05 + i) * 2, 0, Math.PI * 2);
+          ctx.arc(x, y, 1.5 + Math.sin(frame * 0.03 + i) * 1.5, 0, Math.PI * 2);
           ctx.fill();
         }
 
-        // Avatar with fade-in
-        const avatarAlpha = Math.min(progress * 3, 1);
-        ctx.globalAlpha = avatarAlpha;
-        const avatarSize = 300;
+        // === TALKING AVATAR ===
+        const avatarSize = 320;
         const avatarX = (canvas.width - avatarSize) / 2;
-        const avatarY = 100;
+        const avatarY = 80;
+        const avatarCenterX = avatarX + avatarSize / 2;
+        const avatarCenterY = avatarY + avatarSize / 2;
 
-        // Circular clip for avatar
-        ctx.save();
-        ctx.beginPath();
-        ctx.arc(avatarX + avatarSize / 2, avatarY + avatarSize / 2, avatarSize / 2, 0, Math.PI * 2);
-        ctx.clip();
-        ctx.drawImage(img, avatarX, avatarY, avatarSize, avatarSize);
-        ctx.restore();
+        // Subtle head bob when speaking
+        const headBob = speaking ? Math.sin(frame * 0.08) * 3 * mouthOpenness : 0;
+        const headTilt = speaking ? Math.sin(frame * 0.05) * 1.5 * mouthOpenness : 0;
 
-        // Glow ring around avatar
-        ctx.globalAlpha = avatarAlpha;
-        ctx.strokeStyle = `rgba(236, 72, 153, ${0.5 + Math.sin(frame * 0.05) * 0.3})`;
+        // Glow ring (pulses with speech)
+        const glowIntensity = 0.4 + mouthOpenness * 0.4;
+        const ringRadius = avatarSize / 2 + 8 + mouthOpenness * 4;
+        
+        // Outer glow
+        ctx.shadowColor = `rgba(236, 72, 153, ${glowIntensity})`;
+        ctx.shadowBlur = 25 + mouthOpenness * 15;
+        ctx.strokeStyle = `rgba(236, 72, 153, ${0.6 + mouthOpenness * 0.3})`;
         ctx.lineWidth = 3;
         ctx.beginPath();
-        ctx.arc(avatarX + avatarSize / 2, avatarY + avatarSize / 2, avatarSize / 2 + 5, 0, Math.PI * 2);
+        ctx.arc(avatarCenterX, avatarCenterY + headBob, ringRadius, 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.shadowBlur = 0;
+
+        // Second ring
+        ctx.strokeStyle = `rgba(139, 92, 246, ${0.3 + mouthOpenness * 0.2})`;
+        ctx.lineWidth = 1.5;
+        ctx.beginPath();
+        ctx.arc(avatarCenterX, avatarCenterY + headBob, ringRadius + 6, 0, Math.PI * 2);
         ctx.stroke();
 
-        ctx.globalAlpha = 1;
+        // Audio wave ring around avatar when speaking
+        if (speaking && mouthOpenness > 0.1) {
+          ctx.save();
+          ctx.strokeStyle = `rgba(236, 72, 153, ${mouthOpenness * 0.3})`;
+          ctx.lineWidth = 2;
+          ctx.beginPath();
+          for (let angle = 0; angle < Math.PI * 2; angle += 0.05) {
+            const waveAmplitude = 5 + mouthOpenness * 12;
+            const wave = Math.sin(angle * 8 + frame * 0.15) * waveAmplitude;
+            const r = ringRadius + 15 + wave;
+            const wx = avatarCenterX + Math.cos(angle) * r;
+            const wy = avatarCenterY + headBob + Math.sin(angle) * r;
+            if (angle === 0) ctx.moveTo(wx, wy);
+            else ctx.lineTo(wx, wy);
+          }
+          ctx.closePath();
+          ctx.stroke();
+          ctx.restore();
+        }
+
+        // Draw avatar with head movement
+        ctx.save();
+        ctx.translate(avatarCenterX, avatarCenterY + headBob);
+        ctx.rotate((headTilt * Math.PI) / 180);
+        ctx.beginPath();
+        ctx.arc(0, 0, avatarSize / 2, 0, Math.PI * 2);
+        ctx.clip();
+        ctx.drawImage(img, -avatarSize / 2, -avatarSize / 2, avatarSize, avatarSize);
+
+        // Mouth animation overlay (subtle darkening at bottom for open mouth effect)
+        if (mouthOpenness > 0.05) {
+          const mouthY = avatarSize * 0.15; // relative to center
+          const mouthWidth = avatarSize * 0.25;
+          const mouthHeight = mouthOpenness * avatarSize * 0.08;
+
+          // Dark mouth opening
+          ctx.fillStyle = `rgba(30, 10, 10, ${mouthOpenness * 0.6})`;
+          ctx.beginPath();
+          ctx.ellipse(0, mouthY, mouthWidth, mouthHeight, 0, 0, Math.PI * 2);
+          ctx.fill();
+
+          // Slight reddish tint around mouth
+          ctx.fillStyle = `rgba(180, 60, 60, ${mouthOpenness * 0.15})`;
+          ctx.beginPath();
+          ctx.ellipse(0, mouthY, mouthWidth * 1.3, mouthHeight * 1.5, 0, 0, Math.PI * 2);
+          ctx.fill();
+        }
+
+        ctx.restore();
+
+        // "LIVE" / Speaking indicator
+        if (speaking) {
+          const indicatorY = avatarY + avatarSize + 25 + headBob;
+          ctx.fillStyle = `rgba(34, 197, 94, ${0.7 + Math.sin(frame * 0.1) * 0.3})`;
+          ctx.beginPath();
+          ctx.arc(canvas.width / 2 - 40, indicatorY, 5, 0, Math.PI * 2);
+          ctx.fill();
+          ctx.font = "bold 14px sans-serif";
+          ctx.fillStyle = "rgba(34, 197, 94, 0.9)";
+          ctx.textAlign = "left";
+          ctx.fillText("SPEAKING", canvas.width / 2 - 30, indicatorY + 5);
+          ctx.textAlign = "center";
+        }
 
         // App Name with slide-in
-        const nameY = avatarY + avatarSize + 80;
-        const nameOffset = Math.max(0, (1 - progress * 4) * 100);
-        ctx.font = "bold 48px sans-serif";
+        const nameY = avatarY + avatarSize + 70;
+        const nameAlpha = Math.min(progress * 4, 1);
+        ctx.globalAlpha = nameAlpha;
+        ctx.font = "bold 44px sans-serif";
         ctx.fillStyle = "#ffffff";
         ctx.textAlign = "center";
-        ctx.fillText(adAppName, canvas.width / 2 + nameOffset, nameY);
+        ctx.shadowColor = "rgba(236, 72, 153, 0.5)";
+        ctx.shadowBlur = 10;
+        ctx.fillText(adAppName, canvas.width / 2, nameY);
+        ctx.shadowBlur = 0;
+        ctx.globalAlpha = 1;
 
-        // Description text (voiceover script preview)
-        if (progress > 0.2) {
-          const descAlpha = Math.min((progress - 0.2) * 5, 1);
-          ctx.globalAlpha = descAlpha;
-          ctx.font = "20px sans-serif";
-          ctx.fillStyle = "#a0a0c0";
+        // Script text (karaoke-style - words highlight as spoken)
+        if (progress > 0.1) {
+          const scriptY = nameY + 50;
+          ctx.font = "22px sans-serif";
+          ctx.textAlign = "center";
 
-          const words = voiceScript.split(" ");
-          let line = "";
-          let lineY = nameY + 60;
-          const maxWidth = canvas.width - 80;
+          const scriptWords = voiceScript.split(" ");
+          const spokenWordIndex = speaking
+            ? Math.floor(elapsed / avgWordDuration)
+            : scriptWords.length;
 
-          for (const word of words) {
-            const testLine = line + word + " ";
-            if (ctx.measureText(testLine).width > maxWidth) {
-              ctx.fillText(line.trim(), canvas.width / 2, lineY);
-              line = word + " ";
-              lineY += 30;
-              if (lineY > nameY + 200) break;
+          // Render script with word highlighting
+          let lineText = "";
+          let lineY = scriptY;
+          const maxWidth = canvas.width - 100;
+          const allLines: { text: string; startIdx: number; endIdx: number }[] = [];
+          let currentLineStart = 0;
+
+          for (let i = 0; i < scriptWords.length; i++) {
+            const testLine = lineText + scriptWords[i] + " ";
+            if (ctx.measureText(testLine).width > maxWidth && lineText) {
+              allLines.push({ text: lineText.trim(), startIdx: currentLineStart, endIdx: i - 1 });
+              lineText = scriptWords[i] + " ";
+              currentLineStart = i;
             } else {
-              line = testLine;
+              lineText = testLine;
             }
           }
-          if (line) ctx.fillText(line.trim(), canvas.width / 2, lineY);
-          ctx.globalAlpha = 1;
+          if (lineText) allLines.push({ text: lineText.trim(), startIdx: currentLineStart, endIdx: scriptWords.length - 1 });
+
+          // Only show 3 lines at a time
+          const currentLineIdx = allLines.findIndex(
+            (l) => spokenWordIndex >= l.startIdx && spokenWordIndex <= l.endIdx
+          );
+          const visibleStart = Math.max(0, currentLineIdx - 1);
+          const visibleLines = allLines.slice(visibleStart, visibleStart + 3);
+
+          visibleLines.forEach((line, li) => {
+            const y = scriptY + li * 34;
+            if (y > canvas.height - 300) return;
+
+            // Draw each word with highlighting
+            const lineWords = line.text.split(" ");
+            let xPos = canvas.width / 2 - ctx.measureText(line.text).width / 2;
+
+            lineWords.forEach((word, wi) => {
+              const globalWordIdx = line.startIdx + wi;
+              const isSpoken = globalWordIdx < spokenWordIndex;
+              const isCurrent = globalWordIdx === spokenWordIndex;
+
+              if (isCurrent) {
+                ctx.fillStyle = "#ec4899";
+                ctx.font = "bold 24px sans-serif";
+              } else if (isSpoken) {
+                ctx.fillStyle = "#d1d5db";
+                ctx.font = "22px sans-serif";
+              } else {
+                ctx.fillStyle = "#6b7280";
+                ctx.font = "22px sans-serif";
+              }
+
+              ctx.textAlign = "left";
+              ctx.fillText(word + " ", xPos, y);
+              xPos += ctx.measureText(word + " ").width;
+            });
+          });
+
+          ctx.textAlign = "center";
         }
 
         // Install button with bounce
-        if (progress > 0.4) {
-          const btnAlpha = Math.min((progress - 0.4) * 5, 1);
-          const bounce = Math.sin(frame * 0.08) * 5;
-          const btnY = canvas.height - 250 + bounce;
-          const btnW = 280;
-          const btnH = 60;
+        if (progress > 0.3) {
+          const btnAlpha = Math.min((progress - 0.3) * 4, 1);
+          const bounce = Math.sin(frame * 0.06) * 4;
+          const btnY = canvas.height - 220 + bounce;
+          const btnW = 300;
+          const btnH = 64;
           const btnX = (canvas.width - btnW) / 2;
 
           ctx.globalAlpha = btnAlpha;
 
-          // Button background
           const btnGrad = ctx.createLinearGradient(btnX, btnY, btnX + btnW, btnY);
           btnGrad.addColorStop(0, "#ec4899");
           btnGrad.addColorStop(1, "#8b5cf6");
           ctx.fillStyle = btnGrad;
-          ctx.beginPath();
-          ctx.roundRect(btnX, btnY, btnW, btnH, 30);
-          ctx.fill();
 
-          // Button glow
-          ctx.shadowColor = "rgba(236, 72, 153, 0.5)";
+          ctx.shadowColor = "rgba(236, 72, 153, 0.6)";
           ctx.shadowBlur = 20;
+          ctx.beginPath();
+          ctx.roundRect(btnX, btnY, btnW, btnH, 32);
           ctx.fill();
           ctx.shadowBlur = 0;
 
-          // Button text
-          ctx.font = "bold 22px sans-serif";
+          ctx.font = "bold 24px sans-serif";
           ctx.fillStyle = "#ffffff";
-          ctx.fillText(adButtonText, canvas.width / 2, btnY + 38);
+          ctx.fillText(adButtonText, canvas.width / 2, btnY + 40);
           ctx.globalAlpha = 1;
         }
 
         // App link at bottom
-        if (progress > 0.6) {
-          ctx.globalAlpha = Math.min((progress - 0.6) * 5, 0.6);
-          ctx.font = "16px sans-serif";
-          ctx.fillStyle = "#8888aa";
-          ctx.fillText(adAppLink || adAppName, canvas.width / 2, canvas.height - 100);
+        if (progress > 0.5) {
+          ctx.globalAlpha = Math.min((progress - 0.5) * 4, 0.5);
+          ctx.font = "15px sans-serif";
+          ctx.fillStyle = "#6b7280";
+          ctx.fillText(adAppLink || adAppName, canvas.width / 2, canvas.height - 80);
           ctx.globalAlpha = 1;
         }
 
         // Progress bar
-        ctx.fillStyle = "rgba(236, 72, 153, 0.3)";
+        ctx.fillStyle = "rgba(236, 72, 153, 0.15)";
         ctx.fillRect(0, canvas.height - 4, canvas.width, 4);
         ctx.fillStyle = "#ec4899";
         ctx.fillRect(0, canvas.height - 4, canvas.width * progress, 4);
@@ -312,23 +505,24 @@ const AIAdGenerator: React.FC<{ onVideoGenerated: (file: File) => void }> = ({ o
         if (elapsed < totalDuration) {
           requestAnimationFrame(drawFrame);
         } else {
+          speechSynthesis.cancel();
           setTimeout(() => mediaRecorder.stop(), 500);
         }
       };
 
       drawFrame();
 
-      await Promise.all([speechDone, recordingDone.then(() => {})]);
+      await Promise.race([speechDone, new Promise((r) => setTimeout(r, totalDuration))]);
       const blob = await recordingDone;
 
       const videoUrl = URL.createObjectURL(blob);
       setGeneratedVideoUrl(videoUrl);
 
-      // Convert to File
       const file = new File([blob], `ai-ad-${Date.now()}.webm`, { type: "video/webm" });
       onVideoGenerated(file);
 
       toast({ title: "Video Generated! 🎬", description: "Aapka AI ad ready hai" });
+      audioCtx.close();
     } catch (err: any) {
       toast({ title: "Error", description: err.message || "Video generation failed", variant: "destructive" });
     } finally {
@@ -452,35 +646,16 @@ const AIAdGenerator: React.FC<{ onVideoGenerated: (file: File) => void }> = ({ o
               <CardContent className="pt-4 space-y-4">
                 <div>
                   <Label>App Name *</Label>
-                  <Input
-                    placeholder="Your App Name"
-                    value={adAppName}
-                    onChange={(e) => setAdAppName(e.target.value)}
-                    className="mt-1"
-                  />
+                  <Input placeholder="Your App Name" value={adAppName} onChange={(e) => setAdAppName(e.target.value)} className="mt-1" />
                 </div>
-
                 <div>
                   <Label>App Link *</Label>
-                  <Input
-                    placeholder="https://your-app.com"
-                    value={adAppLink}
-                    onChange={(e) => setAdAppLink(e.target.value)}
-                    className="mt-1"
-                  />
+                  <Input placeholder="https://your-app.com" value={adAppLink} onChange={(e) => setAdAppLink(e.target.value)} className="mt-1" />
                 </div>
-
                 <div>
                   <Label>Button Text</Label>
-                  <Input
-                    placeholder="Install Now"
-                    value={adButtonText}
-                    onChange={(e) => setAdButtonText(e.target.value)}
-                    maxLength={30}
-                    className="mt-1"
-                  />
+                  <Input placeholder="Install Now" value={adButtonText} onChange={(e) => setAdButtonText(e.target.value)} maxLength={30} className="mt-1" />
                 </div>
-
                 <div>
                   <Label>Button Style</Label>
                   <div className="grid grid-cols-2 gap-2 mt-2">
@@ -499,14 +674,9 @@ const AIAdGenerator: React.FC<{ onVideoGenerated: (file: File) => void }> = ({ o
                     ))}
                   </div>
                 </div>
-
                 <div className="flex gap-2">
                   <Button variant="ghost" onClick={() => setGenStep(1)} className="flex-1">← Back</Button>
-                  <Button
-                    onClick={() => setGenStep(3)}
-                    disabled={!adAppName}
-                    className="flex-1 gradient-neon text-primary-foreground"
-                  >
+                  <Button onClick={() => setGenStep(3)} disabled={!adAppName} className="flex-1 gradient-neon text-primary-foreground">
                     Next → Voiceover
                   </Button>
                 </div>
@@ -525,7 +695,7 @@ const AIAdGenerator: React.FC<{ onVideoGenerated: (file: File) => void }> = ({ o
                     <Mic className="h-4 w-4 text-neon-pink" /> Voiceover Script *
                   </Label>
                   <Textarea
-                    placeholder="Apne app ke baare mein script likhein... e.g. 'Download the best gaming app now! Amazing features, smooth gameplay, and free rewards!'"
+                    placeholder="Apne app ke baare mein script likhein... e.g. 'Download karo abhi! Best gaming app with amazing features and free rewards!'"
                     value={voiceScript}
                     onChange={(e) => setVoiceScript(e.target.value)}
                     maxLength={500}
@@ -539,23 +709,29 @@ const AIAdGenerator: React.FC<{ onVideoGenerated: (file: File) => void }> = ({ o
                   <Label className="flex items-center gap-2">
                     <Volume2 className="h-4 w-4" /> Select Voice
                   </Label>
+                  <p className="text-xs text-muted-foreground mt-1 mb-2">
+                    ⭐ Top voices sabse pehle dikhaye gaye hain (Google/Microsoft = best quality)
+                  </p>
                   {voices.length === 0 ? (
                     <p className="text-xs text-muted-foreground mt-2">Loading voices...</p>
                   ) : (
-                    <div className="grid grid-cols-1 gap-2 mt-2 max-h-48 overflow-y-auto">
+                    <div className="grid grid-cols-1 gap-2 mt-2 max-h-52 overflow-y-auto">
                       {voices.map((v, idx) => (
                         <button
                           key={idx}
                           onClick={() => setSelectedVoiceIndex(idx)}
-                          className={`flex items-center justify-between p-2 rounded-lg border transition-all text-left ${
+                          className={`flex items-center justify-between p-2.5 rounded-lg border transition-all text-left ${
                             selectedVoiceIndex === idx
                               ? "border-neon-pink bg-neon-pink/10"
                               : "border-border/50 hover:border-border"
                           }`}
                         >
-                          <div>
-                            <p className="text-sm font-medium">{v.name.split(" ").slice(0, 3).join(" ")}</p>
-                            <p className="text-xs text-muted-foreground">{v.lang}</p>
+                          <div className="flex items-center gap-2">
+                            {v.quality >= 80 && <span className="text-xs">⭐</span>}
+                            <div>
+                              <p className="text-sm font-medium">{v.name.split(" ").slice(0, 3).join(" ")}</p>
+                              <p className="text-xs text-muted-foreground">{v.lang} {v.quality >= 80 ? "• HD Voice" : ""}</p>
+                            </div>
                           </div>
                           {selectedVoiceIndex === idx && <Check className="h-4 w-4 text-neon-pink" />}
                         </button>
@@ -579,11 +755,7 @@ const AIAdGenerator: React.FC<{ onVideoGenerated: (file: File) => void }> = ({ o
 
                 <div className="flex gap-2">
                   <Button variant="ghost" onClick={() => setGenStep(2)} className="flex-1">← Back</Button>
-                  <Button
-                    onClick={() => setGenStep(4)}
-                    disabled={!voiceScript}
-                    className="flex-1 gradient-neon text-primary-foreground"
-                  >
+                  <Button onClick={() => setGenStep(4)} disabled={!voiceScript} className="flex-1 gradient-neon text-primary-foreground">
                     Next → Generate
                   </Button>
                 </div>
@@ -597,7 +769,6 @@ const AIAdGenerator: React.FC<{ onVideoGenerated: (file: File) => void }> = ({ o
           <motion.div key="generate" initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }}>
             <Card className="glass border-border/50">
               <CardContent className="pt-4 space-y-4">
-                {/* Preview Summary */}
                 <div className="p-4 rounded-xl bg-muted/20 border border-border/50 space-y-3">
                   <p className="text-xs text-muted-foreground font-bold">Ad Preview Summary:</p>
                   <div className="flex items-center gap-3">
@@ -611,7 +782,7 @@ const AIAdGenerator: React.FC<{ onVideoGenerated: (file: File) => void }> = ({ o
                   </div>
                   <p className="text-xs text-muted-foreground italic">"{voiceScript.slice(0, 100)}..."</p>
                   <p className="text-xs text-muted-foreground">
-                    Voice: {voices[selectedVoiceIndex]?.name || "Default"}
+                    Voice: {voices[selectedVoiceIndex]?.name || "Default"} {voices[selectedVoiceIndex]?.quality >= 80 ? "⭐ HD" : ""}
                   </p>
                 </div>
 
@@ -619,36 +790,22 @@ const AIAdGenerator: React.FC<{ onVideoGenerated: (file: File) => void }> = ({ o
 
                 {generatedVideoUrl ? (
                   <div className="space-y-3">
-                    <video
-                      src={generatedVideoUrl}
-                      controls
-                      className="w-full rounded-xl border border-border/50"
-                      style={{ maxHeight: 400 }}
-                    />
+                    <video src={generatedVideoUrl} controls className="w-full rounded-xl border border-border/50" style={{ maxHeight: 400 }} />
                     <div className="flex gap-2">
-                      <a
-                        href={generatedVideoUrl}
-                        download={`ai-ad-${Date.now()}.webm`}
-                        className="flex-1"
-                      >
+                      <a href={generatedVideoUrl} download={`ai-ad-${Date.now()}.webm`} className="flex-1">
                         <Button variant="outline" className="w-full">
                           <Download className="h-4 w-4 mr-2" /> Download
                         </Button>
                       </a>
                       <Button
-                        onClick={() => {
-                          setGeneratedVideoUrl(null);
-                          generateVideo();
-                        }}
+                        onClick={() => { setGeneratedVideoUrl(null); generateVideo(); }}
                         variant="outline"
                         className="flex-1"
                       >
                         <RefreshCw className="h-4 w-4 mr-2" /> Regenerate
                       </Button>
                     </div>
-                    <p className="text-xs text-muted-foreground text-center">
-                      ✅ Video auto-attached as your promotion video
-                    </p>
+                    <p className="text-xs text-muted-foreground text-center">✅ Video auto-attached as your promotion video</p>
                   </div>
                 ) : (
                   <Button
