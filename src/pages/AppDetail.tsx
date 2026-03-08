@@ -1,9 +1,10 @@
-import React from "react";
+import React, { useState } from "react";
 import { useParams } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
 import Layout from "@/components/Layout";
+import VideoAd from "@/components/VideoAd";
 import { Button } from "@/components/ui/button";
 import { Download, Star, Calendar, HardDrive, Tag } from "lucide-react";
 import { toast } from "sonner";
@@ -12,6 +13,8 @@ import { motion } from "framer-motion";
 const AppDetail: React.FC = () => {
   const { id } = useParams<{ id: string }>();
   const { user } = useAuth();
+  const [showAd, setShowAd] = useState(false);
+  const [adVideoUrl, setAdVideoUrl] = useState("");
 
   const { data: app, isLoading } = useQuery({
     queryKey: ["app", id],
@@ -23,20 +26,49 @@ const AppDetail: React.FC = () => {
     enabled: !!id,
   });
 
-  const handleDownload = async () => {
-    if (!app) return;
-    if (!user) { toast.error("Please login to download"); return; }
+  // Fetch approved promotions with videos
+  const { data: promotions = [] } = useQuery({
+    queryKey: ["active-promotions-with-video"],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("promotion_requests")
+        .select("video_url")
+        .eq("status", "approved")
+        .not("video_url", "is", null);
+      if (error) throw error;
+      return (data || []).filter((p: any) => p.video_url);
+    },
+  });
 
-    // Track download
+  const proceedDownload = async () => {
+    if (!app || !user) return;
     await supabase.from("downloads").insert({ app_id: app.id, user_id: user.id });
     await supabase.rpc("increment_download_count", { _app_id: app.id });
-
     if (app.apk_url) {
       window.open(app.apk_url, "_blank");
       toast.success("Download started!");
     } else {
       toast.error("APK not available yet");
     }
+  };
+
+  const handleDownload = async () => {
+    if (!app) return;
+    if (!user) { toast.error("Please login to download"); return; }
+
+    // Show a random video ad if available
+    if (promotions.length > 0) {
+      const randomPromo = promotions[Math.floor(Math.random() * promotions.length)];
+      setAdVideoUrl(randomPromo.video_url);
+      setShowAd(true);
+    } else {
+      proceedDownload();
+    }
+  };
+
+  const handleAdComplete = () => {
+    setShowAd(false);
+    proceedDownload();
   };
 
   if (isLoading) {
@@ -65,6 +97,16 @@ const AppDetail: React.FC = () => {
 
   return (
     <Layout>
+      {/* Video Ad Overlay */}
+      {showAd && adVideoUrl && (
+        <VideoAd
+          videoUrl={adVideoUrl}
+          onComplete={handleAdComplete}
+          onSkip={handleAdComplete}
+          skipAfterSeconds={4}
+        />
+      )}
+
       <div className="container mx-auto px-4 py-8">
         <motion.div
           initial={{ opacity: 0, y: 20 }}
