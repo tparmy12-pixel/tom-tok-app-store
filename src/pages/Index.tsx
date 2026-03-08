@@ -35,6 +35,15 @@ const Index: React.FC = () => {
 
   return (
     <Layout showSearch onSearch={setSearch}>
+      {/* Floating Promote Button */}
+      <button
+        onClick={() => navigate("/promote")}
+        className="fixed top-20 right-4 z-50 flex items-center gap-1.5 px-4 py-2 rounded-full gradient-neon text-primary-foreground text-sm font-bold neon-glow shadow-lg hover:scale-105 transition-transform"
+      >
+        <Sparkles className="h-4 w-4" />
+        Promote
+      </button>
+
       {/* Hero Banner */}
       <section className="relative overflow-hidden">
         <div className="absolute inset-0 gradient-neon opacity-20" />

@@ -58,6 +58,11 @@ const App = () => (
             <Route path="/privacy-policy" element={<PrivacyPolicy />} />
             <Route path="/terms" element={<TermsConditions />} />
             <Route path="/feedback" element={<Feedback />} />
+            <Route path="/promote" element={<PromoteApp />} />
+            <Route
+              path="/admin/promotions"
+              element={<ProtectedRoute adminOnly><PromotionRequests /></ProtectedRoute>}
+            />
             <Route path="*" element={<NotFound />} />
           </Routes>
         </AuthProvider>
